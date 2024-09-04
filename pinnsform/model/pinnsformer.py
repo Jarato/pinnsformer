@@ -5,8 +5,7 @@
 import torch
 import torch.nn as nn
 import pdb
-
-from util import get_clones
+from pinnsform.util import get_clones
 
 class WaveAct(nn.Module):
     def __init__(self):
@@ -110,8 +109,8 @@ class PINNsformer(nn.Module):
             nn.Linear(d_hidden, d_out)
         ])
 
-    def forward(self, x, t):
-        src = torch.cat((x,t), dim=-1)
+    def forward(self, src):
+        #src = torch.cat((x,t), dim=-1)
         src = self.linear_emb(src)
 
         e_outputs = self.encoder(src)

@@ -6,10 +6,10 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from copy import deepcopy
 
-from model.pinn import PINNs
-from model.pinnsformer import PINNsformer
-from pyhessian import hessian
-from util import get_data
+from pinnsform.model.pinn import PINN
+from pinnsform.model.pinnsformer import PINNsformer
+from pinnsform.pyhessian import hessian
+from pinnsform.util import get_data
 
 dev = torch.device('cpu')
 

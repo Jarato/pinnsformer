@@ -1,20 +1,28 @@
-# baseline implementation of PINNs
-# paper: Physics-informed neural networks: A deep learning framework for solving forward and inverse problems involving nonlinear partial differential equations
-# link: https://www.sciencedirect.com/science/article/pii/S0021999118307125
-# code: https://github.com/maziarraissi/PINNs
+# baseline implementation of First Layer Sine
+# paper: Learning in Sinusoidal Spaces with Physics-Informed Neural Networks
+# link: https://arxiv.org/abs/2109.09338
 
 import torch
 import torch.nn as nn
 
-class PINNs(nn.Module):
+
+class SinAct(nn.Module):
+    def __init__(self):
+            super(SinAct, self).__init__() 
+
+    def forward(self, x):
+        return torch.sin(x)
+        
+
+class FLS(nn.Module):
     def __init__(self, in_dim, hidden_dim, out_dim, num_layer):
-        super(PINNs, self).__init__()
+        super(FLS, self).__init__()
 
         layers = []
         for i in range(num_layer-1):
             if i == 0:
                 layers.append(nn.Linear(in_features=in_dim, out_features=hidden_dim))
-                layers.append(nn.Tanh())
+                layers.append(SinAct())
             else:
                 layers.append(nn.Linear(in_features=hidden_dim, out_features=hidden_dim))
                 layers.append(nn.Tanh())
@@ -23,7 +31,6 @@ class PINNs(nn.Module):
 
         self.linear = nn.Sequential(*layers)
 
-    def forward(self, x, t):
-        src = torch.cat((x,t), dim=-1)
-        return self.linear(src)
-    
+    def forward(self, x):
+        #src = torch.cat((x,t), dim=-1)
+        return self.linear(x)

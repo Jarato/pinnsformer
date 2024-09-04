@@ -5,9 +5,7 @@
 
 import torch
 import torch.nn as nn
-
-from util import get_clones
-
+from pinnsform.util import get_clones
 
 class QRes_block(nn.Module):
     def __init__(self, in_dim, out_dim):
