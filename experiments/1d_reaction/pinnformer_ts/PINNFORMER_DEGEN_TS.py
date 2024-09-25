@@ -1,5 +1,5 @@
 from pinnsform.util import *
-from pinnsform.model import PINNsformer, PINNsformerTanh
+from pinnsform.model import PINNsformerDegen
 
 from torchviz import make_dot
 
@@ -74,7 +74,6 @@ initial_memory = torch.cuda.memory_allocated(device)
 
 train_points = (51, 51)
 mesh, boundaries = generate_mesh_object(train_points, domain=problem_domain, device=device, full_requires_grad=True, border_requires_grad=False, num_seq_steps=5, seq_step_size=1e-3)
-
 b_left = boundaries[0][0]
 b_right = boundaries[0][1]
 initial = boundaries[1][0]
@@ -164,10 +163,10 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
         m.bias.data.fill_(0.01)
 
-NUM_SEEDS = 1
+NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
 optimizer = LBFGS
-MAX_EPOCHS = 1
+MAX_EPOCHS = 100
 
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS
@@ -180,17 +179,18 @@ if __name__ == '__main__':
 
         set_random_seed(init_seed)
 
-        base_model = PINNsformer(d_out=1, d_hidden=512, d_model=32, N=1, heads=2).to(device)
+        base_model = PINNsformerDegen(d_out=1, d_hidden=512, d_model=32, N=1, heads=2).to(device)
         base_model.apply(init_weights)
-
-        seed_folder_name = os.path.join(result_dir, f"seed_{init_seed}")
-        os.makedirs(seed_folder_name, exist_ok=True)
-
-        torch.save(base_model.state_dict(), os.path.join(seed_folder_name,"init_model.pth"))
 
         trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
 
         ###   STORE   ###
+
+        seed_folder_name = os.path.join(result_dir, f"seed_{init_seed}")
+        os.makedirs(seed_folder_name, exist_ok=True)
+
+        #with open(os.path.join(seed_folder_name, "epoch_0.txt"), "w") as text_file:
+        #    text_file.write(test)
 
         # model weights
         torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
@@ -204,6 +204,7 @@ if __name__ == '__main__':
         rmae = rMAE(prediction, analytic_solution)
         rrmse = rRMSE(prediction, analytic_solution)
         pd.DataFrame(np.stack([[rmae], [rrmse]], axis=1), columns=["rMAE", "rRMSE"]).to_csv(os.path.join(seed_folder_name, "error.csv"), index = False)
+
 
     with open(os.path.join(result_dir, f"{script_name}_executed.py"), 'a') as file:
         file.write("\n\n"+"#"*100+f"\n#\tSCRIPT EXECUTION TIME (HH:MM:SS)\n#\t{datetime.timedelta(seconds = time.time()-script_execution_start)}")

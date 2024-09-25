@@ -1,5 +1,5 @@
 from pinnsform.util import *
-from pinnsform.model import PINN, FLS, FLW
+from pinnsform.model import PINN, FLS, FLW, FLWC
 
 from torchviz import make_dot
 
@@ -72,7 +72,6 @@ def loss_fn(model, mesh, b_left, b_right, initial, initial_values):
 def intial_value_function(x):
     return torch.exp(- (x - torch.pi)**2 / (2*(torch.pi/4.0)**2))
 
-
 def h(x):
     return np.exp( - (x-np.pi)**2 / (2 * (np.pi/4)**2))
 
@@ -87,7 +86,7 @@ initial_memory = torch.cuda.memory_allocated(device)
 
 train_points = (101, 101)
 mesh, boundaries = generate_mesh_object(train_points, domain=problem_domain, device=device, full_requires_grad=True, border_requires_grad=False)
-
+print(mesh.full.shape)
 b_left = boundaries[0][0]
 b_right = boundaries[0][1]
 initial = boundaries[1][0]
@@ -131,6 +130,7 @@ def train_model(
         def closure():
             optimizer.zero_grad()
             pde_loss, boundary_loss, initial_loss = loss_fn(model)
+            
             loss = pde_loss + boundary_loss + initial_loss # 1.0/train_points[0]*pde_loss
             if not all_data["closure_calls"][epoch]:
                 with torch.no_grad():
@@ -172,10 +172,10 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
         m.bias.data.fill_(0.01)
 
-NUM_SEEDS = 100
+NUM_SEEDS = 1
 INIT_SEEDS = np.array(range(NUM_SEEDS))
-MODELS = [PINN, FLS, FLW]
-model_names = ["PINN", "FLS", "FLW"]
+MODELS = [PINN]#, FLS, FLW, FLW2]
+model_names = ["PINN", "FLS", "FLW", "FLW2"]
 optimizer = LBFGS
 MAX_EPOCHS = 100
 
@@ -193,9 +193,10 @@ if __name__ == '__main__':
 
             set_random_seed(init_seed)
 
-            base_model = model_class(in_dim=2, hidden_dim=512, out_dim=1, num_layer=4).to(device)
+            base_model = model_class(in_dim=2, hidden_dim=128, out_dim=1, num_layer=4).to(device)
             base_model.apply(init_weights)
 
+            print(get_n_params(base_model))
             #for param in base_model.parameters():
             #    print(param)
 
@@ -221,4 +222,4 @@ if __name__ == '__main__':
 
 
     with open(os.path.join(result_dir, f"{script_name}_executed.py"), 'a') as file:
-        file.write("\n\n"+"#"*100+f"\n#\tSCRIPT EXECUTION TIME (HH:MM:SS)\n#\t{datetime.timedelta(seconds = time.time()-script_execution_start)}")
+        file.write("\n\n"+"#"*100+f"\n#\tSCRIPT EXECUTION TIME (HH:MM:SS)\n#\t{datetime.timedelta(seconds = int(time.time()-script_execution_start))}")

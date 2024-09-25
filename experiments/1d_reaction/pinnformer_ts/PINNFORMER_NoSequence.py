@@ -73,7 +73,16 @@ problem_domain = ([0, 2*np.pi], [0, 1])
 initial_memory = torch.cuda.memory_allocated(device)
 
 train_points = (51, 51)
-mesh, boundaries = generate_mesh_object(train_points, domain=problem_domain, device=device, full_requires_grad=True, border_requires_grad=False, num_seq_steps=5, seq_step_size=1e-3)
+
+# 51 x 51 mesh
+np_mesh = generate_mesh(train_points, problem_domain)
+# create spatial sequences
+sequence_mesh = make_temporal_sequence(np_mesh, 5, 1e-3)
+# flatten the sequence
+sequence_mesh = np.expand_dims(listify_sequence(sequence_mesh), 1)
+# make torch Mesh object and borders
+mesh = torchify(sequence_mesh, device, True)
+boundaries = torchified_borders(sequence_mesh, problem_domain, device, False)
 
 b_left = boundaries[0][0]
 b_right = boundaries[0][1]
@@ -88,11 +97,14 @@ allocated_memory_data = torch.cuda.memory_allocated(device) - initial_memory
 
 # TEST
 test_points = (201, 201)
-test_mesh, _ = generate_mesh_object(test_points, domain=problem_domain, device=device, full_requires_grad=False, border_requires_grad=False, num_seq_steps=5, seq_step_size=1e-3)
-print('TEST MESH')
-print(test_mesh.part[0][:,0].shape)
-print(test_mesh.part[1][:,0].shape)
-print('#'*20)
+# 51 x 51 mesh
+test_np_mesh = generate_mesh(train_points, problem_domain)
+
+# create spatial sequences
+test_sequence_mesh = make_temporal_sequence(np_mesh, 1, 1e-3)
+## make torch Mesh object and borders
+test_mesh = torchify(test_sequence_mesh, device, False)
+
 analytic_solution = u_ana(test_mesh.part[0][:,0].cpu().numpy(), test_mesh.part[1][:,0].cpu().numpy())
 
 
@@ -164,10 +176,10 @@ def init_weights(m):
         torch.nn.init.xavier_uniform_(m.weight)
         m.bias.data.fill_(0.01)
 
-NUM_SEEDS = 1
+NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
 optimizer = LBFGS
-MAX_EPOCHS = 1
+MAX_EPOCHS = 100
 
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS

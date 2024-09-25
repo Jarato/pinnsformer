@@ -1,5 +1,4 @@
 import os
-from pinntorch import *
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -10,36 +9,17 @@ def load_csv_to_numpy(file_path):
 
 def calculate_mae_mse(base_path, analysis_path, file_name, pbar):
     os.makedirs(analysis_path, exist_ok=True)
-    # for every slider position we store mean and std
-    MAE_mean = np.zeros(len(BETA_VALUES))
-    MAE_std = np.zeros(len(BETA_VALUES))
-    MSE_mean = np.zeros(len(BETA_VALUES))
-    MSE_std = np.zeros(len(BETA_VALUES))
         
     analytic_path = os.path.join(base_path, 'analytic.csv')
     analytic_solution = load_csv_to_numpy(analytic_path)
         
-    for j, beta in enumerate(MODELS):
-        beta_path = os.path.join(base_path, f"beta_{beta}")
-
-        MAE_single_means = np.zeros(50)
-        MSE_single_means = np.zeros(50)
+    for j, model in enumerate(MODELS):
+        model_path = os.path.join(base_path, model)
 
         for i in INIT_SEEDS:
             
             file_path = os.path.join(beta_path, f"seed_{i}", file_name)
-            predicted_solution = load_csv_to_numpy(file_path)
-
-            diff = predicted_solution - analytic_solution
-            i -= 20
-            # MAE and MSE calculation
-            MAE_single_means[i] = np.mean(np.abs(diff))
-            MSE_single_means[i] = np.mean(np.square(diff))
-
-        MAE_mean[j] = np.mean(MAE_single_means)
-        MAE_std[j] = np.std(MAE_single_means)
-        MSE_mean[j] = np.mean(MSE_single_means)
-        MSE_std[j] = np.std(MSE_single_means)
+            data = load_csv_to_numpy(file_path)
 
         pbar.update(1)
 
@@ -61,4 +41,4 @@ if __name__ == '__main__':
     data_path = os.path.join(base_dir, 'results', experiment_name, '32bit')
     analysis_path = os.path.join(base_dir, 'analysis', experiment_name)
 
-    calculate_mae_mse(data_path, analysis_path, "test_prediction.csv", progress_bar)
+    calculate_mae_mse(data_path, analysis_path, "error.csv", progress_bar)

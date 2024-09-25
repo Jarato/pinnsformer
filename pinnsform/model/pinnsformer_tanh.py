@@ -7,24 +7,14 @@ import torch.nn as nn
 import pdb
 from pinnsform.util import get_clones
 
-class WaveAct(nn.Module):
-    def __init__(self):
-        super(WaveAct, self).__init__() 
-        self.w1 = nn.Parameter(torch.ones(1), requires_grad=True)
-        self.w2 = nn.Parameter(torch.ones(1), requires_grad=True)
-
-    def forward(self, x):
-        return self.w1 * torch.sin(x)+ self.w2 * torch.cos(x)
-
-
 class FeedForward(nn.Module):
     def __init__(self, d_model, d_ff=256):
         super(FeedForward, self).__init__() 
         self.linear = nn.Sequential(*[
             nn.Linear(d_model, d_ff),
-            WaveAct(),
+            nn.Tanh(),
             nn.Linear(d_ff, d_ff),
-            WaveAct(),
+            nn.Tanh(),
             nn.Linear(d_ff, d_model)
         ])
 
@@ -38,8 +28,8 @@ class EncoderLayer(nn.Module):
 
         self.attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=heads, batch_first=True)
         self.ff = FeedForward(d_model)
-        self.act1 = WaveAct()
-        self.act2 = WaveAct()
+        self.act1 = nn.Tanh()
+        self.act2 = nn.Tanh()
         
     def forward(self, x):
         x2 = self.act1(x)
@@ -56,8 +46,8 @@ class DecoderLayer(nn.Module):
 
         self.attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=heads, batch_first=True)
         self.ff = FeedForward(d_model)
-        self.act1 = WaveAct()
-        self.act2 = WaveAct()
+        self.act1 = nn.Tanh()
+        self.act2 = nn.Tanh()
 
     def forward(self, x, e_outputs): 
         x2 = self.act1(x)
@@ -72,7 +62,7 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
         self.N = N
         self.layers = get_clones(EncoderLayer(d_model, heads), N)
-        self.act = WaveAct()
+        self.act = nn.Tanh()
 
     def forward(self, x):
         for i in range(self.N):
@@ -85,7 +75,7 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.N = N
         self.layers = get_clones(DecoderLayer(d_model, heads), N)
-        self.act = WaveAct()
+        self.act = nn.Tanh()
         
     def forward(self, x, e_outputs):
         for i in range(self.N):
@@ -108,9 +98,9 @@ class Decoder(nn.Module):
 #        return self.linear(x)
 
 
-class PINNsformer(nn.Module):
+class PINNsformerTanh(nn.Module):
     def __init__(self, d_out, d_model, d_hidden, N, heads):
-        super(PINNsformer, self).__init__()
+        super(PINNsformerTanh, self).__init__()
 
         #self.st_mixer = SpatioTemporalMixer(d_model)
         self.st_mixer = nn.Linear(2, d_model)
@@ -119,9 +109,9 @@ class PINNsformer(nn.Module):
         self.decoder = Decoder(d_model, N, heads)
         self.linear_out = nn.Sequential(*[
             nn.Linear(d_model, d_hidden),
-            WaveAct(),
+            nn.Tanh(),
             nn.Linear(d_hidden, d_hidden),
-            WaveAct(),
+            nn.Tanh(),
             nn.Linear(d_hidden, d_out)
         ])
 

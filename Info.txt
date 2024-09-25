@@ -1,0 +1,57 @@
+Original paper
+- PINN, FLS, QRes, PINNsFormer (with temporal sequence)
+- 1000 LBFGS strong wolfe
+- Claim: PINNsFormer model with temporal sequence is better because it captures temporal dependencies
+
+
+# Problems of the original PINNsFormer research
+
+- every model is only run once on every Problem
+- collocation points are chosen differently: 
+    - 101x101 mesh                      => PINN, FLS and QRes
+    - 51x51 mesh plus time sequence     => PINNsFormer
+- Same collocation mesh for training and testing
+- Incorrect Wavelet activation function implementation
+- Time Sequence choice is unreasonable (going +delta, instead of -delta)
+- No isolation of interesting variables. What's responsible for the performance? 
+    - Transformer architecture?
+    - wavelet activation function?
+    - mesh of collocation points?
+
+
+# Questions about the paper
+- Why initialize the bias with 0.01 and not 0 ?
+    => usually it's 0
+- Why initialize the weights of the sine and cosine parts of the Wavelet activation function with 1 ?
+    => 1*cos(0) is 1, which is basically a bias.
+    => Why not initialize these weights using a gaussian?
+
+# Better Experiments
+- Run every model on every problem 100 times (100 seeds).
+- Use the same parameter initialization seed for every model, if possible.
+- Use the same collocation points for training
+- 64bit vs 32bit precision
+- Use different optimization algorithms (LBFGS, Adam, Adam + lr_scheduler)
+- Models:
+    - PINN
+    - FLS
+    With correct and incorrect Wavelet implementation:
+        - FLW
+        - FullWavelet
+        PINNsFormer
+            - normal temporal sequence
+            - reverse temporal sequence
+            - spatial sequence
+            - zero sequence (sequence of same collocation points)
+
+
+
+
+# Open questions
+how to compare different optimization algorithms?
+    => by runtime? by number of evaluations?
+
+how to detect failure modes?
+    => failure modes happen, when ode loss overshadows the initial loss such that it finds itself in a degenerate solution.
+        => look at initial loss vs pde loss
+            => measure pde loss by time slice?

@@ -223,4 +223,4 @@ if __name__ == '__main__':
 
 
     with open(os.path.join(result_dir, f"{script_name}_executed.py"), 'a') as file:
-        file.write("\n\n"+"#"*100+f"\n#\tSCRIPT EXECUTION TIME (HH:MM:SS)\n#\t{datetime.timedelta(seconds = time.time()-script_execution_start)}")
+        file.write("\n\n"+"#"*100+f"\n#\tSCRIPT EXECUTION TIME (HH:MM:SS)\n#\t{datetime.timedelta(seconds = int(time.time()-script_execution_start))}")

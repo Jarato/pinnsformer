@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.optim import LBFGS
 from itertools import product
-from copy import copy, deepcopy
+from copy import deepcopy, copy
 from dataclasses import dataclass
 import pandas as pd
 from tqdm import tqdm
@@ -13,8 +13,9 @@ import random
 import time
 from functools import partial
 
+
 def get_clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
+    return nn.ModuleList([deepcopy(module) for i in range(N)])
 
 def set_random_seed(seed):
     np.random.seed(seed)
@@ -33,50 +34,66 @@ class Mesh:
     full : torch.Tensor
     part : list
 
-def meshify(l, device, requires_grad = False):
-    parts = [torch.tensor(part, requires_grad = requires_grad, dtype=torch.get_default_dtype()).to(device) for part in np.array_split(np.array(list(product(*l))), 2, 1)]
-    full = torch.cat(parts, dim=1)
-    return Mesh(full, parts)
-
-def generate_mesh_object(point_counts, domain, skew = None, device = 'cpu', full_requires_grad = True, border_requires_grad = False):
+def generate_mesh(point_counts, domain, skew=None):
     if isinstance(point_counts, int):
         point_counts = [point_counts]
         domain = [domain]
-
+    
     if skew:
         full_list = [np.linspace(0, 1, count) for i, count in enumerate(point_counts)]
         full_list = [points ** skew[i] for i, points in enumerate(full_list)]
         full_list = [domain[i][0] + (domain[i][1] - domain[i][0]) * points for i,points in enumerate(full_list)]
     else:
         full_list = [np.linspace(domain[i][0], domain[i][1], count) for i, count in enumerate(point_counts)]
+        
+    np_full_mesh = np.array(list(product(*full_list)))
     
-    full_mesh = meshify(full_list, device, full_requires_grad)
-    
-    border_lists = [(copy(full_list), copy(full_list)) for _ in full_list]
-    for i, _ in enumerate(full_list):
-        border_lists[i][0][i] = [float(domain[i][0])]
-        border_lists[i][1][i] = [float(domain[i][1])]
-    border_meshes = [(meshify(border[0], device, border_requires_grad), meshify(border[1], device, border_requires_grad)) for border in border_lists]
-    
-    return full_mesh, border_meshes
+    return np_full_mesh
+
+def torchify(mesh, device, requires_grad):
+    parts = [torch.tensor(part, requires_grad = requires_grad, dtype=torch.get_default_dtype()).to(device) for part in np.array_split(mesh, 2, -1)]
+    full = torch.cat(parts, dim=-1)
+    return Mesh(full, parts)
+
+def listify_sequence(sequence_mesh):
+    return np.reshape(sequence_mesh, (sequence_mesh.shape[0]*sequence_mesh.shape[1], 2))
+
+def torchified_borders(mesh, domain, device, requires_grad = True):
+    domain_filter = mesh
+    if len(mesh.shape) == 3: # sequences
+        domain_filter = mesh[:,0]
+    return [(torchify(mesh[domain_filter[:,i]==d[0]], device, requires_grad), torchify(mesh[domain_filter[:,i]==d[1]], device, requires_grad)) for i, d in enumerate(domain)]
+
+def generate_mesh_object(point_counts, domain, skew = None, device = 'cpu', full_requires_grad = True, border_requires_grad = False, num_seq_steps = 1, seq_step_size = 0):
+    np_mesh = generate_mesh(point_counts, domain, skew)
+
+    # create sequence if sequence length is set    
+    if num_seq_steps > 1:
+        np_mesh = make_temporal_sequence(np_mesh, num_step=num_seq_steps, step=seq_step_size)
+
+    mesh = torchify(np_mesh, device, full_requires_grad)
+
+    borders = torchified_borders(np_mesh, domain, device, border_requires_grad)
+
+    return mesh, borders
 
 def f(model, mesh, of = None):
     points = mesh
     if isinstance(mesh, Mesh):
         points = mesh.full
     if of is not None:
-        return torch.split(model(points), 1, 1)[of]
+        return torch.split(model(points), 1, -1)[of]
     return model(points)
 
 def df(model, mesh, of = 0, wrt = 0, order = 1):
     df_of = f(model, mesh, of)
+    #print(df_of)
     respect_to = mesh.part[wrt]
-    gradoutputs = torch.ones_like(respect_to)
     for _ in range(order):
         df_of = torch.autograd.grad(
             df_of,
             respect_to,
-            grad_outputs=gradoutputs,
+            grad_outputs=torch.ones_like(df_of),
             create_graph=True,
             retain_graph=True,
         )[0]
@@ -119,13 +136,28 @@ def make_temporal_sequence(src, num_step=5, step=1e-4):
 def make_time_sequence(src, num_step=5, step=1e-4):
     return make_temporal_sequence(src, num_step, step)
 
-
-# TODO implement the spatial sequence
-def make_spatial_sequence(src, num_step=5, step=1e-4):
+def make_random_spatial_sequence(src, num_step, domain):
     dim = num_step
     src = np.repeat(np.expand_dims(src, axis=1), dim, axis=1)  # (N, L, 2)
-    for i in range(num_step):
-        src[:,i,-1] += step*i
+    spatial_domain = np.array(domain)[0:-1]
+    for i in range(0, src.shape[0]):
+        for j in range(1, num_step):
+            src[i,j,0:-1] = spatial_domain[:,0] + np.random.rand(spatial_domain.shape[0]) * (spatial_domain[:,1]-spatial_domain[:,0])
+    return src
+
+def make_spatial_sequence(src, num_step, step_size, domain):
+    dim = num_step
+    src = np.repeat(np.expand_dims(src, axis=1), dim, axis=1)  # (N, L, 2)
+    spatial_domain = np.array(domain)[0:-1]
+    for i in range(0, src.shape[0]):
+        for j in range(1, num_step):
+            base_value = src[i,j,0:1]
+            offset = step_size*int((j+1)/2)*(-1)**j
+            if base_value[0] == domain[0][0]:
+                offset = step_size*j
+            if base_value[0] == domain[0][1]:
+                offset = -step_size*j
+            src[i,j,0:1] += offset
     return src
 
 
