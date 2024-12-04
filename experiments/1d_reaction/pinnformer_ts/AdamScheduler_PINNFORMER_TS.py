@@ -107,7 +107,7 @@ def train_model(
     pbar
 ) -> nn.Module:
 
-    optimizer = optimizer_fn(model.parameters(), lr=0.01)
+    optimizer = optimizer_fn(model.parameters())
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, factor=1 - 0.1, patience=5, threshold=1e-8, cooldown=5)
 
     all_data = {}

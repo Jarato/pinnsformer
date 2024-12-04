@@ -8,8 +8,6 @@ import pdb
 from .shared import WaveAct
 from pinnsform.util import get_clones
 
-
-
 class FeedForward(nn.Module):
     def __init__(self, d_model, d_ff=256):
         super(FeedForward, self).__init__() 
@@ -33,13 +31,20 @@ class EncoderLayer(nn.Module):
         self.ff = FeedForward(d_model)
         self.act1 = WaveAct()
         self.act2 = WaveAct()
-
+        self.mask = None
+        
     def forward(self, x):
+        # only attention with itself
+        if self.mask is None:
+            _, seq_len, _ = x.size()
+            #self.mask = torch.full((seq_len, seq_len), float('-inf'), device="cuda")
+            #self.mask.fill_diagonal_(0)  # Allow self-attention only
+            self.mask = torch.ones(seq_len, seq_len, dtype=torch.bool).to("cuda")
+            self.mask.fill_diagonal_(False)
+
         x2 = self.act1(x)
         # pdb.set_trace()
-        att_out, att_out_weights = self.attn(x2,x2,x2, need_weights=True)
-        #print(att_out_weights)
-        x = x + att_out
+        x = x + self.attn(x2,x2,x2, attn_mask=self.mask)[0]
         x2 = self.act2(x)
         x = x + self.ff(x2)
         return x
@@ -53,10 +58,19 @@ class DecoderLayer(nn.Module):
         self.ff = FeedForward(d_model)
         self.act1 = WaveAct()
         self.act2 = WaveAct()
+        self.mask = None
 
-    def forward(self, x, e_outputs): 
+    def forward(self, x, e_outputs):
+        # only attention with itself
+        if self.mask is None:
+            _, seq_len, _ = x.size()
+            #self.mask = torch.full((seq_len, seq_len), float('-inf'), device="cuda")
+            #self.mask.fill_diagonal_(0)  # Allow self-attention only
+            self.mask = torch.ones(seq_len, seq_len, dtype=torch.bool).to("cuda")
+            self.mask.fill_diagonal_(False)
+
         x2 = self.act1(x)
-        x = x + self.attn(x2, e_outputs, e_outputs)[0]
+        x = x + self.attn(x2, e_outputs, e_outputs, attn_mask=self.mask)[0]
         x2 = self.act2(x)
         x = x + self.ff(x2)
         return x
@@ -103,9 +117,9 @@ class Decoder(nn.Module):
 #        return self.linear(x)
 
 
-class PINNsformer(nn.Module):
+class PINNsformerNoAttention(nn.Module):
     def __init__(self, d_out, d_model, d_hidden, N, heads):
-        super(PINNsformer, self).__init__()
+        super(PINNsformerNoAttention, self).__init__()
 
         #self.st_mixer = SpatioTemporalMixer(d_model)
         self.st_mixer = nn.Linear(2, d_model)
@@ -122,43 +136,13 @@ class PINNsformer(nn.Module):
 
     def forward(self, src):
         #src = torch.cat((x,t), dim=-1)
+
         src = self.st_mixer(src)
         
         e_outputs = self.encoder(src)
         d_output = self.decoder(src, e_outputs)
         
         output = self.linear_out(d_output)
-        # pdb.set_trace()
-        # raise Exception('stop')
-        return output
-
-
-
-class PINNsformerOnlyEncoder(nn.Module):
-    def __init__(self, d_out, d_model, d_hidden, N, heads):
-        super(PINNsformerOnlyEncoder, self).__init__()
-
-        #self.st_mixer = SpatioTemporalMixer(d_model)
-        self.st_mixer = nn.Linear(2, d_model)
-
-        self.encoder = Encoder(d_model, N, heads)
-        #self.decoder = Decoder(d_model, N, heads)
-        self.linear_out = nn.Sequential(*[
-            nn.Linear(d_model, d_hidden),
-            WaveAct(),
-            nn.Linear(d_hidden, d_hidden),
-            WaveAct(),
-            nn.Linear(d_hidden, d_out)
-        ])
-
-    def forward(self, src):
-        #src = torch.cat((x,t), dim=-1)
-        src = self.st_mixer(src)
-        
-        e_outputs = self.encoder(src)
-        #d_output = self.decoder(src, e_outputs)
-        
-        output = self.linear_out(e_outputs)
         # pdb.set_trace()
         # raise Exception('stop')
         return output

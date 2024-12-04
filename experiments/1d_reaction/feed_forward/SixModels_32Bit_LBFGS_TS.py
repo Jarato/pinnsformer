@@ -1,5 +1,5 @@
 from pinnsform.util import *
-from pinnsform.model import PINN, FLS, FLW, FLWC, FullWavelet, FullWaveletC, FLLWaveletRest
+from pinnsform.model import PINN, PINN_shifted, FLS, FLW, FullWavelet, FLLWaveletRest, FullWaveletThenTanh
 
 from torchviz import make_dot
 
@@ -170,10 +170,10 @@ def init_weights(m):
 
 NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
-MODELS = [FLLWaveletRest, PINN, FLS, FLW, FLWC, FullWavelet, FullWaveletC]
-model_names = ["FLLWaveletRest", "PINN", "FLS", "FLW", "FLW_correct", "FullWavelet", "FullWavelet_correct"]
+MODELS = [PINN_shifted] #FullWaveletThenTanh, FLLWaveletRest, PINN, FLS, FLW, FLWC, FullWavelet, FullWaveletC]
+model_names = ["PINN_shifted"] #"FullWaveletThenTanh", "FLLWaveletRest", "PINN", "FLS", "FLW", "FLW_correct", "FullWavelet", "FullWavelet_correct"]
 optimizer = LBFGS
-MAX_EPOCHS = 1
+MAX_EPOCHS = 100
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS * len(MODELS)
 
@@ -190,32 +190,28 @@ if __name__ == '__main__':
 
             base_model = model_class(in_dim=2, hidden_dim=512, out_dim=1, num_layer=4).to(device)
             base_model.apply(init_weights)
-            #print()
-            #print(f"{model_name} with {get_n_params(base_model)} params")
-            #for param in base_model.parameters():
-            #    print(param)
-
-            #trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
-
-            ###   STORE   ###
 
             seed_folder_name = os.path.join(result_dir, model_name, f"seed_{init_seed}")
             os.makedirs(seed_folder_name, exist_ok=True)
 
-            # model weights
             torch.save(base_model.state_dict(), os.path.join(seed_folder_name,"init_model.pth"))
-            #torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
+
+            trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
+
+            ###   STORE   ###
+
+            # model weights
+            torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
             
-            pbar.update(1)
             # train data
-            #stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
-            #pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
+            stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
+            pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
 #
             ## relative prediction error
-            #prediction = f(trained_model, test_mesh).detach().cpu().numpy() 
-            #rmae = rMAE(prediction, analytic_solution)
-            #rrmse = rRMSE(prediction, analytic_solution)
-            #pd.DataFrame(np.stack([[rmae], [rrmse]], axis=1), columns=["rMAE", "rRMSE"]).to_csv(os.path.join(seed_folder_name, "error.csv"), index = False)
+            prediction = f(trained_model, test_mesh).detach().cpu().numpy() 
+            rmae = rMAE(prediction, analytic_solution)
+            rrmse = rRMSE(prediction, analytic_solution)
+            pd.DataFrame(np.stack([[rmae], [rrmse]], axis=1), columns=["rMAE", "rRMSE"]).to_csv(os.path.join(seed_folder_name, "error.csv"), index = False)
 
 
     with open(os.path.join(result_dir, f"{script_name}_executed.py"), 'a') as file:

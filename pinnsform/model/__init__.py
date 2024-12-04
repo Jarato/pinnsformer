@@ -6,3 +6,5 @@ from .qres import *
 from .pinnsformer_sine import PINNsformerSine
 from .pinnsformer_tanh import PINNsformerTanh
 from .pinnsformer_degenerate import PINNsformerDegen
+from .pinnsformer_noattention import PINNsformerNoAttention
+from .shared import *

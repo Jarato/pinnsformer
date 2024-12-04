@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../../../../pinn-torch-main"
+		},
+		{
+			"path": "../../.."
+		}
+	],
+	"settings": {}
+}

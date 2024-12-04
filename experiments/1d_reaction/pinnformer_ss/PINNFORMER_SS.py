@@ -172,7 +172,7 @@ def init_weights(m):
 NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
 optimizer = LBFGS
-MAX_EPOCHS = 100
+MAX_EPOCHS = 1
 
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS
@@ -188,31 +188,28 @@ if __name__ == '__main__':
         base_model = PINNsformer(d_out=1, d_hidden=512, d_model=32, N=1, heads=2).to(device)
         base_model.apply(init_weights)
 
-        #for param in base_model.parameters():
-        #    print(param)
-
-        trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
-
-        ###   STORE   ###
-
         seed_folder_name = os.path.join(result_dir, f"seed_{init_seed}")
         os.makedirs(seed_folder_name, exist_ok=True)
 
-        #with open(os.path.join(seed_folder_name, "epoch_0.txt"), "w") as text_file:
-        #    text_file.write(test)
+        torch.save(base_model.state_dict(), os.path.join(seed_folder_name,"init_model.pth"))
 
-        # model weights
-        torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
 
-        # train data
-        stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
-        pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
-
-        # relative prediction error
-        prediction = f(trained_model, test_mesh)[:,0].detach().cpu().numpy() 
-        rmae = rMAE(prediction, analytic_solution)
-        rrmse = rRMSE(prediction, analytic_solution)
-        pd.DataFrame(np.stack([[rmae], [rrmse]], axis=1), columns=["rMAE", "rRMSE"]).to_csv(os.path.join(seed_folder_name, "error.csv"), index = False)
+        #trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
+#
+        ####   STORE   ###
+#
+        ## model weights
+        #torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
+#
+        ## train data
+        #stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
+        #pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
+#
+        ## relative prediction error
+        #prediction = f(trained_model, test_mesh)[:,0].detach().cpu().numpy() 
+        #rmae = rMAE(prediction, analytic_solution)
+        #rrmse = rRMSE(prediction, analytic_solution)
+        #pd.DataFrame(np.stack([[rmae], [rrmse]], axis=1), columns=["rMAE", "rRMSE"]).to_csv(os.path.join(seed_folder_name, "error.csv"), index = False)
 
 
     with open(os.path.join(result_dir, f"{script_name}_executed.py"), 'a') as file:

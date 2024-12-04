@@ -1,6 +1,5 @@
 from pinnsform.util import *
-from pinnsform.model import PINNsformer, PINNsformerTanh
-from torch.optim import Adam
+from pinnsform.model import FullWavelet
 
 from torchviz import make_dot
 
@@ -57,9 +56,9 @@ def loss_fn(model, mesh, b_left, b_right, initial, initial_values):
 
     return pde_loss, boundary_loss, initial_loss
 
-
 def intial_value_function(x):
     return torch.exp(- (x - torch.pi)**2 / (2*(torch.pi/4.0)**2))
+
 
 def h(x):
     return np.exp( - (x-np.pi)**2 / (2 * (np.pi/4)**2))
@@ -107,16 +106,15 @@ def train_model(
     pbar
 ) -> nn.Module:
 
-    optimizer = optimizer_fn(model.parameters(), lr=0.01)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer, factor=1 - 0.1, patience=5, threshold=1e-8, cooldown=5)
+    optimizer = optimizer_fn(model.parameters(), line_search_fn='strong_wolfe')
 
     all_data = {}
     all_data["pde_train_loss"] = np.zeros(max_epochs)
     all_data["boundary_loss"] = np.zeros(max_epochs)
     all_data["initial_loss"] = np.zeros(max_epochs)
     all_data["time"] = np.zeros(max_epochs)
+    all_data["closure_calls"] = np.zeros(max_epochs)
     all_data["gpu_memory"] = np.zeros(max_epochs)
-    all_data["learning_rate"] = np.zeros(max_epochs)
 
     for epoch in range(0, max_epochs):
         epoch_start = time.time()
@@ -126,21 +124,20 @@ def train_model(
             pde_loss, boundary_loss, initial_loss = loss_fn(model)
             
             loss = pde_loss + boundary_loss + initial_loss # 1.0/train_points[0]*pde_loss
-           
-            all_data["pde_train_loss"][epoch] = pde_loss.item()
-            all_data["boundary_loss"][epoch] = boundary_loss.item()
-            all_data["initial_loss"][epoch] = initial_loss.item()
-            all_data["gpu_memory"][epoch] = torch.cuda.memory_allocated(device)
-            all_data["learning_rate"][epoch] = np.array([pg['lr'] for pg in scheduler.optimizer.param_groups])[0]
+            if not all_data["closure_calls"][epoch]:
+                with torch.no_grad():
+                    all_data["pde_train_loss"][epoch] = pde_loss.item()
+                    all_data["boundary_loss"][epoch] = boundary_loss.item()
+                    all_data["initial_loss"][epoch] = initial_loss.item()
+                all_data["gpu_memory"][epoch] = torch.cuda.memory_allocated(device)
+
+            all_data["closure_calls"][epoch] += 1
             #graph = make_dot(loss)
             #graph.save(os.path.join(result_dir, f"computation_graph_epoch_{epoch}.dot"))
             loss.backward()
             return loss
 
-        loss = closure()
-
-        optimizer.step()
-        scheduler.step(loss)
+        optimizer.step(closure)
         #test
         #memory = torch.cuda.memory_allocated(device)
         #print(f"epoch_{epoch} GPU memory", torch.cuda.memory_allocated(device))
@@ -169,8 +166,8 @@ def init_weights(m):
 
 NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
-optimizer = Adam
-MAX_EPOCHS = 10_000
+optimizer = LBFGS
+MAX_EPOCHS = 100
 
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS
@@ -199,8 +196,8 @@ if __name__ == '__main__':
         torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
 
         # train data
-        stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["learning_rate"], train_data["time"], train_data["gpu_memory"]], axis=1)
-        pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "learning_rate", "time", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
+        stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
+        pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
 
         # relative prediction error
         prediction = f(trained_model, test_mesh)[:,0].detach().cpu().numpy() 

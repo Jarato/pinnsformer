@@ -47,4 +47,26 @@ class PINN(nn.Module):
 
     def forward(self, x):
         return self.linear(x)
+
+
+class PINN_shifted(nn.Module):
+    def __init__(self, in_dim, hidden_dim, out_dim, num_layer, shift_value = 0.5):
+        super(PINN_shifted, self).__init__()
+
+        self.shifted = shift_value
+        layers = []
+        for i in range(num_layer-1):
+            if i == 0:
+                layers.append(nn.Linear(in_features=in_dim, out_features=hidden_dim))
+                layers.append(nn.Tanh())
+            else:
+                layers.append(nn.Linear(in_features=hidden_dim, out_features=hidden_dim))
+                layers.append(nn.Tanh())
+
+        layers.append(nn.Linear(in_features=hidden_dim, out_features=out_dim))
+
+        self.linear = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.linear(x) + self.shifted
     

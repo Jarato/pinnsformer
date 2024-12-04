@@ -22,6 +22,8 @@ def set_random_seed(seed):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    
 
 def rMAE(pred, true):
     return np.sum(np.abs(true-pred)) / np.sum(np.abs(true))
@@ -51,12 +53,12 @@ def generate_mesh(point_counts, domain, skew=None):
     return np_full_mesh
 
 def torchify(mesh, device, requires_grad):
-    parts = [torch.tensor(part, requires_grad = requires_grad, dtype=torch.get_default_dtype()).to(device) for part in np.array_split(mesh, 2, -1)]
+    parts = [torch.tensor(part, requires_grad = requires_grad, dtype=torch.get_default_dtype()).to(device) for part in np.array_split(mesh, mesh.shape[-1], -1)]
     full = torch.cat(parts, dim=-1)
     return Mesh(full, parts)
 
 def listify_sequence(sequence_mesh):
-    return np.reshape(sequence_mesh, (sequence_mesh.shape[0]*sequence_mesh.shape[1], 2))
+    return np.reshape(sequence_mesh, (sequence_mesh.shape[0]*sequence_mesh.shape[1], sequence_mesh.shape[-1]))
 
 def torchified_borders(mesh, domain, device, requires_grad = True):
     domain_filter = mesh

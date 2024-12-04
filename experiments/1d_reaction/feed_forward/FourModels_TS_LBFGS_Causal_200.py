@@ -1,8 +1,7 @@
 from pinnsform.util import *
-from pinnsform.model import PINN, FLS, FLW, FLWC, FLLWaveletRest
+from pinnsform.model import PINN, FLS, FLW, FullWavelet
 
 from torchviz import make_dot
-
 
 script_execution_start = time.time()
 
@@ -39,33 +38,19 @@ device = 'cuda'
 RHO = 5.0
 
 
-#   pred_res = model(x_res, t_res)
-#   pred_left = model(x_left, t_left)
-#   pred_right = model(x_right, t_right)
-#   pred_upper = model(x_upper, t_upper)
-#   pred_lower = model(x_lower, t_lower)
-#   u_x = torch.autograd.grad(pred_res, x_res, grad_outputs=torch.ones_like(pred_res), retain_graph=True, create_graph=True)[0]
-#   u_t = torch.autograd.grad(pred_res, t_res, grad_outputs=torch.ones_like(pred_res), retain_graph=True, create_graph=True)[0]
-#   loss_res = torch.mean((u_t - 5 * pred_res * (1-pred_res)) ** 2)
-#   loss_bc = torch.mean((pred_upper - pred_lower) ** 2)
-#   loss_ic = torch.mean((pred_left[:,0] - torch.exp(- (x_left[:,0] - torch.pi)**2 / (2*(torch.pi/4)**2))) ** 2)
-#   loss_track.append([loss_res.item(), loss_bc.item(), loss_ic.item()])
-#   loss = loss_res + loss_bc + loss_ic
-
-
 def loss_fn(model, mesh, b_left, b_right, initial, initial_values):
     # pde
     u = f(model, mesh)
     pde_residue = df(model, mesh, wrt=1) - RHO*u*(1.0-u)
-    pde_loss = pde_residue.pow(2).mean()
+    pde_loss = pde_residue.pow(2)
 
     # boundary
     boundary_residue = f(model, b_left) - f(model, b_right)
-    boundary_loss = boundary_residue.pow(2).mean()
+    boundary_loss = boundary_residue.pow(2)
 
     # initial
     initial_residue = f(model, initial) - initial_values
-    initial_loss = initial_residue.pow(2).mean()
+    initial_loss = initial_residue.pow(2)
 
     return pde_loss, boundary_loss, initial_loss
 
@@ -84,9 +69,20 @@ problem_domain = ([0, 2*np.pi], [0, 1])
 
 initial_memory = torch.cuda.memory_allocated(device)
 
-train_points = (101, 101)
-mesh, boundaries = generate_mesh_object(train_points, domain=problem_domain, device=device, full_requires_grad=True, border_requires_grad=False)
-print(mesh.full.shape)
+train_points = (51, 51) 
+
+# 51x51 mesh as list
+np_mesh = generate_mesh(train_points, problem_domain)
+# 51x51 mesh as list with temporal sequence for every point
+sequence_mesh = make_temporal_sequence(np_mesh, num_step=5, step=1e-3)
+# flatten the temporal sequence for normal models
+np_mesh_sequence = listify_sequence(sequence_mesh)
+# make Mesh object of torch tensors
+mesh = torchify(np_mesh_sequence, device, True)
+boundaries = torchified_borders(np_mesh_sequence, problem_domain, device, False)
+
+#mesh, boundaries = generate_mesh_object(train_points, domain=problem_domain, device=device, full_requires_grad=True, border_requires_grad=False)
+
 b_left = boundaries[0][0]
 b_right = boundaries[0][1]
 initial = boundaries[1][0]
@@ -111,7 +107,8 @@ def train_model(
     loss_fn,
     max_epochs,
     optimizer_fn,
-    pbar
+    pbar,
+    folder
 ) -> nn.Module:
 
     optimizer = optimizer_fn(model.parameters(), line_search_fn='strong_wolfe')
@@ -124,61 +121,81 @@ def train_model(
     all_data["closure_calls"] = np.zeros(max_epochs)
     all_data["gpu_memory"] = np.zeros(max_epochs)
 
+    # torch.autograd.set_detect_anomaly(True)
+
     for epoch in range(0, max_epochs):
+        if epoch == 0:# < 5 or all_data["initial_loss"][epoch-1] != all_data["initial_loss"][epoch-2]:
+            torch.save(model.state_dict(), os.path.join(folder,f"model_at_{epoch}.pth"))
         epoch_start = time.time()
+
+        
+        pde_loss_pre, boundary_loss_pre, initial_loss_pre = loss_fn(model)
+        with torch.no_grad():
+            pde_loss = torch.reshape(pde_loss_pre, (train_points[0], train_points[1]*5))
+            pde_array = pde_loss.detach()
+
+            boundary_mean = torch.mean(boundary_loss_pre.detach(), axis=1)
+
+            time_slice_loss = (torch.sum(pde_array, axis=0) + boundary_mean)/train_points[0]
+            tsl_rolled = torch.roll(time_slice_loss, 1)
+            tsl_rolled[0] = initial_loss_pre.mean()
+            time_slice_weight = torch.exp(-10*torch.cumsum(tsl_rolled, 0))
+            #time_slice_weight = torch.exp(-2*(torch.cumprod(tsl_rolled+1, 0)-1))
+        print(time_slice_weight[0].item(), time_slice_weight[127].item(), time_slice_weight[-1].item())
 
         def closure():
             optimizer.zero_grad()
             pde_loss, boundary_loss, initial_loss = loss_fn(model)
+            pde_loss_matrix = torch.reshape(pde_loss, (train_points[0], train_points[1]*5))
+
+            #print(pde_loss_matrix)
+            weighted_boundary_loss = boundary_loss.reshape(train_points[1]*5) * time_slice_weight
+            weighted_pde_matrix = pde_loss_matrix * time_slice_weight
+            #print(weighted_pde_matrix)
+            #print(weighted_boundary_loss)
+
+            #exit()
+
+            loss = weighted_pde_matrix.mean() + weighted_boundary_loss.mean() + initial_loss.mean()
             
-            loss = pde_loss + boundary_loss + initial_loss
             if not all_data["closure_calls"][epoch]:
                 with torch.no_grad():
-                    all_data["pde_train_loss"][epoch] = pde_loss.item()
-                    all_data["boundary_loss"][epoch] = boundary_loss.item()
-                    all_data["initial_loss"][epoch] = initial_loss.item()
+                    all_data["pde_train_loss"][epoch] = pde_loss.mean().item()
+                    all_data["boundary_loss"][epoch] = boundary_loss.mean().item()
+                    all_data["initial_loss"][epoch] = initial_loss.mean().item()
                 all_data["gpu_memory"][epoch] = torch.cuda.memory_allocated(device)
 
             all_data["closure_calls"][epoch] += 1
-            #graph = make_dot(loss)
-            #graph.save(os.path.join(result_dir, f"computation_graph_epoch_{epoch}.dot"))
             loss.backward()
             return loss
 
         optimizer.step(closure)
-
-        #memory = torch.cuda.memory_allocated(device)
-        #print(f"epoch_{epoch} GPU memory", torch.cuda.memory_allocated(device))
-
+        
         all_data["time"][epoch] = (time.time() - epoch_start)
+
         pbar.update(1)
 
-    #for key in all_data:
-    #    all_data[key] = np.array(all_data[key])
-
-    #print(all_data)
-
     return model, all_data
-
-
-#def init_weights(m):
-#    if isinstance(m, nn.Linear):
-#        torch.nn.init.xavier_uniform_(m.weight)
-#        torch.nn.init.zeros_(m.bias)
 
 
 def init_weights(m):
     if isinstance(m, nn.Linear):
         torch.nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.01)
+        torch.nn.init.zeros_(m.bias)
 
-NUM_SEEDS = 1
+
+#def init_weights(m):
+#    if isinstance(m, nn.Linear):
+#        torch.nn.init.xavier_uniform_(m.weight)
+#        m.bias.data.fill_(0.01)
+
+NUM_SEEDS = 100
 INIT_SEEDS = np.array(range(NUM_SEEDS))
-MODELS = [PINN]#, FLS, FLW, FLW2]
-model_names = ["PINN", "FLS", "FLW", "FLW2"]
+MODELS = [PINN, FLS, FLW]#, FLS, FLW, FullWavelet]
+model_names = ["PINN", "FLS", "FLW"]#, "FLS", "FLW", "FullWavelet"]
+#ModelParams = [(512, 4)]#, (193, 16)]
 optimizer = LBFGS
-MAX_EPOCHS = 100
-
+MAX_EPOCHS = 200
 
 TOTAL_EPOCHS = NUM_SEEDS * MAX_EPOCHS * len(MODELS)
 
@@ -191,30 +208,23 @@ if __name__ == '__main__':
         for init_seed in INIT_SEEDS:
             pbar.set_description(f"Processing {model_name} seed {init_seed}/{NUM_SEEDS-1}")
 
+            base_model = model_class(in_dim=2, hidden_dim=512, out_dim=1, num_layer=4).to(device)
             set_random_seed(init_seed)
-
-            base_model = model_class(in_dim=2, hidden_dim=128, out_dim=1, num_layer=4).to(device)
             base_model.apply(init_weights)
-
-            print(get_n_params(base_model))
-            #for param in base_model.parameters():
-            #    print(param)
-
-            trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar)
-
-            ###   STORE   ###
-
+            
             seed_folder_name = os.path.join(result_dir, model_name, f"seed_{init_seed}")
             os.makedirs(seed_folder_name, exist_ok=True)
 
-            # model weights
-            torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,"trained_model.pth"))
+            trained_model, train_data = train_model(base_model, loss_function, MAX_EPOCHS, optimizer, pbar, seed_folder_name)
+            
+            ###   STORE   ###
+            torch.save(trained_model.state_dict(), os.path.join(seed_folder_name,f"model_at_{MAX_EPOCHS}.pth"))
 
             # train data
             stacked_train_data = np.stack([train_data["pde_train_loss"], train_data["boundary_loss"], train_data["initial_loss"], train_data["time"], train_data["closure_calls"], train_data["gpu_memory"]], axis=1)
             pd.DataFrame(stacked_train_data, columns=["pde_train_loss", "boundary_loss", "initial_loss", "time", "closure_calls", "gpu_memory"]).to_csv(os.path.join(seed_folder_name, "train_data.csv"), index = False)
-
-            # relative prediction error
+#
+            ## relative prediction error
             prediction = f(trained_model, test_mesh).detach().cpu().numpy() 
             rmae = rMAE(prediction, analytic_solution)
             rrmse = rRMSE(prediction, analytic_solution)
